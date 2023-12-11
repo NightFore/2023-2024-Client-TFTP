@@ -1,6 +1,14 @@
+// TP2_1_cmd_args.c
+
+// ------------------- Header -------------------- //
 #include <stdio.h>
 #include <stdlib.h>
 
+// Function prototypes
+void parseCmdArgs(int argc, char *argv[], char **host, char **file);
+
+// -------------------- Functions -------------------- //
+// Function to parse command line arguments
 void parseCmdArgs(int argc, char *argv[], char **host, char **file) {
     // Check the number of arguments
     if (argc != 3) {
@@ -13,6 +21,7 @@ void parseCmdArgs(int argc, char *argv[], char **host, char **file) {
     *file = argv[2];
 }
 
+// -------------------- Main -------------------- //
 int main(int argc, char *argv[]) {
     char *host;
     char *file;
