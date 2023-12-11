@@ -24,5 +24,5 @@ int main(int argc, char *argv[]) {
     printf("Host: %s\n", host);
     printf("File: %s\n", file);
 
-    return 0;
+    return EXIT_SUCCESS;
 }
