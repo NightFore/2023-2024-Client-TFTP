@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-int main(int argc, char *argv[]) {
+void parseCmdArgs(int argc, char *argv[], char **host, char **file) {
     // Check the number of arguments
     if (argc != 3) {
         fprintf(stderr, "Usage: %s <host> <file>\n", argv[0]);
@@ -9,12 +9,20 @@ int main(int argc, char *argv[]) {
     }
 
     // Retrieve information from the command-line arguments
-    char *host = argv[1];
-    char *file = argv[2];
+    *host = argv[1];
+    *file = argv[2];
+}
 
-    // Display information
+int main(int argc, char *argv[]) {
+    char *host;
+    char *file;
+
+    // Parse command line arguments
+    parseCmdArgs(argc, argv, &host, &file);
+
+    // Debug: Display information
     printf("Host: %s\n", host);
     printf("File: %s\n", file);
 
-    return EXIT_SUCCESS;
+    return 0;
 }
