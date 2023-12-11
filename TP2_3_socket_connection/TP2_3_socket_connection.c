@@ -1,4 +1,4 @@
-// TP2_2_getaddrinfo.c
+// TP2_3_socket_connection.c
 
 // -------------------- Header -------------------- //
 #include <arpa/inet.h>
@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 // Define constants for address family, socket type, protocol, and flags
 #define DEFAULT_AI_FAMILY AF_INET    // Use IPv4 by default
@@ -18,6 +19,7 @@
 // Function prototypes
 void parseCmdArgs(int argc, char *argv[], char **host, char **file);
 struct addrinfo* getAddressInfo(const char *host, const char *port);
+int createSocket(const struct addrinfo *serverAddr);
 void displayDebugHostFileInfo(const char *host, const char *file);
 void displayDebugAddressInfo(const struct addrinfo *serverAddr);
 
@@ -59,6 +61,19 @@ struct addrinfo* getAddressInfo(const char *host, const char *port) {
     }
 
     return serverAddr;
+}
+
+// Function to create and reserve a socket for connection to the server
+int createSocket(const struct addrinfo *serverAddr) {
+    // Create a socket
+    int sockfd = socket(serverAddr->ai_family, serverAddr->ai_socktype, serverAddr->ai_protocol);
+    if (sockfd == -1) {
+        fprintf(stderr, "Error: createSocket\nFailed to create socket\n");
+        perror("socket");
+        exit(EXIT_FAILURE);
+    }
+
+    return sockfd;
 }
 
 
@@ -110,8 +125,14 @@ int main(int argc, char *argv[]) {
     // Display address information
     displayDebugAddressInfo(serverAddr);
 
+    // Create and reserve a socket for connection to the server
+    int sockfd = createSocket(serverAddr);
+
     // Free the linked list of address info
     freeaddrinfo(serverAddr);
+    
+    // Close the socket when done
+    close(sockfd);
 
     return EXIT_SUCCESS;
 }
