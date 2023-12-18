@@ -1,5 +1,13 @@
 // TP2_2_getaddrinfo.c
 
+/*
+    Changes from the previous code:
+
+    - Added header files (arpa/inet.h, netdb.h, string.h, sys/socket.h, sys/types.h).
+    - Added new constants (TFTP_SERVER_PORT, AI_FAMILY, AI_SOCKTYPE, AI_PROTOCOL, AI_FLAGS).
+    - Added new functions (cleanup, getAddressInfo, displayDebugAddressInfo).
+*/
+
 // -------------------- Header -------------------- //
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -10,11 +18,11 @@
 #include <sys/types.h>
 
 // Constants
-#define TFTP_SERVER_PORT "69"       // Default TFTP server port
-#define DEFAULT_AI_FAMILY AF_INET   // Use IPv4 by default
-#define DEFAULT_AI_SOCKTYPE 0       // Any socket type by default
-#define DEFAULT_AI_PROTOCOL 0       // Any protocol by default
-#define DEFAULT_AI_FLAGS 0          // No flags by default
+#define TFTP_SERVER_PORT "69"       // Default port number for TFTP server
+#define AI_FAMILY AF_INET           // Use IPv4 address family by default
+#define AI_SOCKTYPE SOCK_DGRAM      // Datagram socket type for UDP
+#define AI_PROTOCOL IPPROTO_UDP     // UDP protocol for socket
+#define AI_FLAGS 0                  // No special flags for getaddrinfo function
 
 // Helper Functions
 void handle_error(const char *location, const char *message, const char *perror_message);
@@ -79,11 +87,11 @@ struct addrinfo* getAddressInfo(const char *host, const char *port) {
     // Initialize hints to zero
     memset(&hints, 0, sizeof hints);
 
-    // Set hints for address family (IPv4), socket type (any), protocol (any), and no special flags
-    hints.ai_family = DEFAULT_AI_FAMILY;
-    hints.ai_socktype = DEFAULT_AI_SOCKTYPE;
-    hints.ai_protocol = DEFAULT_AI_PROTOCOL;
-    hints.ai_flags = DEFAULT_AI_FLAGS;
+    // Set hints for address family , socket type, protocol, and no special flags
+    hints.ai_family = AI_FAMILY;
+    hints.ai_socktype = AI_SOCKTYPE;
+    hints.ai_protocol = AI_PROTOCOL;
+    hints.ai_flags = AI_FLAGS;
 
     // Get address information
     int status = getaddrinfo(host, port, &hints, &serverAddr);

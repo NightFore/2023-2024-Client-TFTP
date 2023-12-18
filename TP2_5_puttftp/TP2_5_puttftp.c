@@ -1,5 +1,12 @@
 // TP2_5_puttftp.c
 
+/*
+    Changes from the previous code:
+
+    - Added new functions (processUserInput, sendWRQ, sendFile, displayDebugWRQSuccess, displayDebugSentDAT, displayDebugReceivedACK).
+    - Modified the `cleanup` function to include `wrqPacket`.
+*/
+
 // -------------------- Header -------------------- //
 // Libraries
 #include <arpa/inet.h>
@@ -7,21 +14,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/select.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 // Constants
-#define TFTP_SERVER_PORT "69"       // Default TFTP server port
-#define DEFAULT_AI_FAMILY AF_INET   // Use IPv4 by default
-#define DEFAULT_AI_SOCKTYPE 0       // Any socket type by default
-#define DEFAULT_AI_PROTOCOL 0       // Any protocol by default
-#define DEFAULT_AI_FLAGS 0          // No flags by default
-#define RRQ_OPCODE_READ 1           // Read Request opcode
-#define WRQ_OPCODE_WRITE 2          // Write Request opcode
-#define MODE_STRING "octet"         // Default Mode for file transfer
+#define TFTP_SERVER_PORT "69"       // Default port number for TFTP server
+#define AI_FAMILY AF_INET           // Use IPv4 address family by default
+#define AI_SOCKTYPE SOCK_DGRAM      // Datagram socket type for UDP
+#define AI_PROTOCOL IPPROTO_UDP     // UDP protocol for socket
+#define AI_FLAGS 0                  // No special flags for getaddrinfo function
+#define OPCODE_RRQ 1                // TFTP opcode for Read Request
+#define OPCODE_WRQ 2                // TFTP opcode for Write Request
+#define OPCODE_DATA 3               // TFTP opcode for Data Packet
+#define OPCODE_ACK 4                // TFTP opcode for Acknowledgment
+#define TRANSFER_MODE "octet"       // Default transfer mode for file transfer
 #define SENDTO_FLAGS 0              // No special flags for the sendto function
-#define RECV_FLAGS 0                // No special flags for the recv function
+#define RECVFROM_FLAGS 0            // No special flags for the recvfrom function
 
 // Structure definitions
 struct ACKPacket {
@@ -30,6 +39,7 @@ struct ACKPacket {
 };
 
 // Helper Functions
+void processUserInput(int sockfd, struct addrinfo *serverAddr, const char *action, const char *file);
 void handle_error(const char *location, const char *message, const char *perror_message);
 void cleanup(struct addrinfo *serverAddr, int sockfd, char *rrqPacket, char *wrqPacket);
 
@@ -52,10 +62,37 @@ void displayDebugReceivedDAT(const char *dataPacket, ssize_t bytesRead);
 void debugDisplayACKSuccess();
 void displayDebugWRQSuccess();
 void displayDebugSentDAT(const char *dataPacket, ssize_t bytesSent);
+void displayDebugReceivedACK(const struct ACKPacket *ackPacket);
 
 
 
 // -------------------- Helper Functions -------------------- //
+// Function to handle user input
+void processUserInput(int sockfd, struct addrinfo *serverAddr, const char *action, const char *file) {
+    if (strcmp(action, "get") == 0) {
+        // Send a RRQ (Read Request) to the server
+        char *rrqPacket = sendRRQ(sockfd, serverAddr->ai_addr, file);
+
+        // Receive the file (single DATA packet) from the server
+        receiveFile(sockfd, serverAddr->ai_addr, file);
+
+        // Cleanup before exiting the program
+        cleanup(serverAddr, sockfd, rrqPacket, NULL);
+    } else if (strcmp(action, "put") == 0) {
+        // Send a WRQ (Write Request) to the server
+        char *wrqPacket = sendWRQ(sockfd, serverAddr->ai_addr, file);
+
+        // Send a file (multiple DATA Request) to the server
+        sendFile(sockfd, serverAddr->ai_addr, file);
+
+        // Cleanup before exiting the program
+        cleanup(serverAddr, sockfd, NULL, wrqPacket);
+    } else {
+        // Invalid action
+        handle_error("processUserInput", "Invalid action (use 'get' or 'put')", NULL);
+    }
+}
+
 // Function to handle errors
 void handle_error(const char *location, const char *message, const char *perror_message) {
     // Print an error message with location and custom message
@@ -69,28 +106,6 @@ void handle_error(const char *location, const char *message, const char *perror_
 
     // Exit the program with a failure status
     exit(EXIT_FAILURE);
-}
-
-// Function to send an ACK packet
-void sendACK(int sockfd, const struct sockaddr *serverAddr, uint16_t blockNumber) {
-    // Create an ACK packet structure
-    struct ACKPacket ackPacket;
-    
-    // Set the opcode for ACK (4 for ACK) and convert to network byte order
-    ackPacket.opcode = htons(4);
-
-    // Set the block number and convert to network byte order
-    ackPacket.blockNumber = htons(blockNumber);
-
-    // Send the ACK packet to the server
-    ssize_t bytesSent = sendto(sockfd, &ackPacket, sizeof(struct ACKPacket), SENDTO_FLAGS, serverAddr, sizeof(struct sockaddr));
-
-    // Check if the sendto operation was successful
-    if (bytesSent == -1) {
-        handle_error("sendACK", "Failed to send ACK packet to the server", "sendto");
-    }
-
-    debugDisplayACKSuccess();
 }
 
 // Function to perform cleanup before exiting the program
@@ -142,11 +157,11 @@ struct addrinfo* getAddressInfo(const char *host, const char *port) {
     // Initialize hints to zero
     memset(&hints, 0, sizeof hints);
 
-    // Set hints for address family (IPv4), socket type (any), protocol (any), and no special flags
-    hints.ai_family = DEFAULT_AI_FAMILY;
-    hints.ai_socktype = DEFAULT_AI_SOCKTYPE;
-    hints.ai_protocol = DEFAULT_AI_PROTOCOL;
-    hints.ai_flags = DEFAULT_AI_FLAGS;
+    // Set hints for address family , socket type, protocol, and no special flags
+    hints.ai_family = AI_FAMILY;
+    hints.ai_socktype = AI_SOCKTYPE;
+    hints.ai_protocol = AI_PROTOCOL;
+    hints.ai_flags = AI_FLAGS;
 
     // Get address information
     int status = getaddrinfo(host, port, &hints, &serverAddr);
@@ -177,10 +192,9 @@ int createSocket(const struct addrinfo *serverAddr) {
 // Function to send a RRQ (Read Request) to the server
 char* sendRRQ(int sockfd, const struct sockaddr *serverAddr, const char *filename) {
     // Format of a RRQ packet: opcode (2 bytes) + filename (variable) + \0 (1 byte) + mode (variable) + \0 (1 byte)
-    // Minimum size: 9 bytes (excluding filename and mode)
 
     // Calculate the size of the RRQ packet
-    size_t packetSize = sizeof(uint16_t) + strlen(filename) + 1 + strlen(MODE_STRING) + 1;
+    size_t packetSize = sizeof(uint16_t) + strlen(filename) + 1 + strlen(TRANSFER_MODE) + 1;
 
     // Allocate memory for the RRQ packet
     char *rrqPacket = (char *) malloc(packetSize);
@@ -193,7 +207,7 @@ char* sendRRQ(int sockfd, const struct sockaddr *serverAddr, const char *filenam
 
     // 1. Set the opcode for Read Request (RRQ) in the RRQ packet
     rrqPacket[currentIndex++] = 0;
-    rrqPacket[currentIndex++] = RRQ_OPCODE_READ;
+    rrqPacket[currentIndex++] = OPCODE_RRQ;
 
     // 2. Copy the filename to the packet
     strcpy(rrqPacket + currentIndex, filename);
@@ -202,9 +216,9 @@ char* sendRRQ(int sockfd, const struct sockaddr *serverAddr, const char *filenam
     // 3. Add a null byte after the filename
     rrqPacket[currentIndex++] = '\0';
 
-    // 4. Copy the file transfer mode ("octet") to the RRQ packet
-    strcpy(rrqPacket + currentIndex, MODE_STRING);
-    currentIndex += strlen(MODE_STRING);
+    // 4. Copy the file transfer mode to the RRQ packet
+    strcpy(rrqPacket + currentIndex, TRANSFER_MODE);
+    currentIndex += strlen(TRANSFER_MODE);
 
     // 5. Add a null byte after the mode
     rrqPacket[currentIndex++] = '\0';
@@ -225,21 +239,39 @@ char* sendRRQ(int sockfd, const struct sockaddr *serverAddr, const char *filenam
 // Function to receive a file (multiple DATA packets) from the server
 void receiveFile(int sockfd, const struct sockaddr *serverAddr, const char *filename) {
     // Format of a DATA packet: opcode (2 bytes) + block number (2 bytes) + data (variable)
-    // Minimum size: 4 bytes (excluding data)
+    
+    // Buffer for receiving the DATA packet
+    char dataPacket[BUFSIZ];
+
+    // File pointer for writing the received data
+    FILE *file = fopen(filename, "wb");
+    if (file == NULL) {
+        handle_error("receiveFile", "Failed to open the file for writing", "fopen");
+    }
 
     // Initialize the block number for the first packet
     uint16_t blockNumber = 1;
 
     // Continuously receive and acknowledge packets until the transfer is complete
     while (1) {
-        // Buffer for receiving the DATA packet
-        char dataPacket[BUFSIZ];
-
-        // Receive the DATA packet from the server
-        ssize_t bytesRead = recv(sockfd, dataPacket, BUFSIZ, RECV_FLAGS);
+        // Receive the DATA packet from the server (Address and port information not needed)
+        ssize_t bytesRead = recvfrom(sockfd, dataPacket, BUFSIZ, RECVFROM_FLAGS, NULL, NULL);
         if (bytesRead == -1) {
+            fclose(file);
             handle_error("receiveFile", "Failed to receive DATA packet from the server", "recv");
         }
+
+        // Calculate the size of the headers in the received DATA packet
+        size_t headerSize = sizeof(uint16_t) * 2;
+
+        // Calculate the size of the data portion in the received DATA packet
+        size_t dataSize = bytesRead - headerSize;
+
+        // Get a pointer to the start of the data portion in the received DATA packet
+        const char *dataStart = dataPacket + headerSize;
+
+        // Write the data portion to the file
+        fwrite(dataStart, 1, dataSize, file);
 
         // Display debug information about received DATA packet
         displayDebugReceivedDAT(dataPacket, bytesRead);
@@ -255,17 +287,39 @@ void receiveFile(int sockfd, const struct sockaddr *serverAddr, const char *file
             break;
         }
     }
+
+    // Close the file after writing
+    fclose(file);
 }
 
+// Function to send an ACK packet
+void sendACK(int sockfd, const struct sockaddr *serverAddr, uint16_t blockNumber) {
+    // Create an ACK packet structure
+    struct ACKPacket ackPacket;
 
+    // Set the opcode for ACK
+    ackPacket.opcode = htons(OPCODE_ACK);
 
-// Function to send a WRQ (Write Request) to the server
+    // Set the block number
+    ackPacket.blockNumber = htons(blockNumber);
+
+    // Send the ACK packet to the server
+    ssize_t bytesSent = sendto(sockfd, &ackPacket, sizeof(struct ACKPacket), SENDTO_FLAGS, serverAddr, sizeof(struct sockaddr));
+
+    // Check if the sendto operation was successful
+    if (bytesSent == -1) {
+        handle_error("sendACK", "Failed to send ACK packet to the server", "sendto");
+    }
+
+    debugDisplayACKSuccess();
+}
+
+// Function to send a WRQ (Read Request) to the server
 char* sendWRQ(int sockfd, const struct sockaddr *serverAddr, const char *filename) {
     // Format of a WRQ packet: opcode (2 bytes) + filename (variable) + \0 (1 byte) + mode (variable) + \0 (1 byte)
-    // Minimum size: 9 bytes (excluding filename and mode)
 
     // Calculate the size of the WRQ packet
-    size_t packetSize = sizeof(uint16_t) + strlen(filename) + 1 + strlen(MODE_STRING) + 1;
+    size_t packetSize = sizeof(uint16_t) + strlen(filename) + 1 + strlen(TRANSFER_MODE) + 1;
 
     // Allocate memory for the WRQ packet
     char *wrqPacket = (char *) malloc(packetSize);
@@ -276,9 +330,9 @@ char* sendWRQ(int sockfd, const struct sockaddr *serverAddr, const char *filenam
     // Initialize the current index for building the packet
     int currentIndex = 0;
 
-    // 1. Set the opcode for Write Request (WRQ) in the WRQ packet
+    // 1. Set the opcode for Read Request (WRQ) in the WRQ packet
     wrqPacket[currentIndex++] = 0;
-    wrqPacket[currentIndex++] = WRQ_OPCODE_WRITE;
+    wrqPacket[currentIndex++] = OPCODE_WRQ;
 
     // 2. Copy the filename to the packet
     strcpy(wrqPacket + currentIndex, filename);
@@ -287,9 +341,9 @@ char* sendWRQ(int sockfd, const struct sockaddr *serverAddr, const char *filenam
     // 3. Add a null byte after the filename
     wrqPacket[currentIndex++] = '\0';
 
-    // 4. Copy the file transfer mode ("octet") to the WRQ packet
-    strcpy(wrqPacket + currentIndex, MODE_STRING);
-    currentIndex += strlen(MODE_STRING);
+    // 4. Copy the file transfer mode to the WRQ packet
+    strcpy(wrqPacket + currentIndex, TRANSFER_MODE);
+    currentIndex += strlen(TRANSFER_MODE);
 
     // 5. Add a null byte after the mode
     wrqPacket[currentIndex++] = '\0';
@@ -307,71 +361,99 @@ char* sendWRQ(int sockfd, const struct sockaddr *serverAddr, const char *filenam
     return wrqPacket;
 }
 
-// Function to send a file to the server
+// Function to send a file (multiple DATA packets) to the server
 void sendFile(int sockfd, const struct sockaddr *serverAddr, const char *file) {
-    // Calculate the size of the data
-    size_t dataSize = strlen(file);
+    // Format of a DATA packet: opcode (2 bytes) + block number (2 bytes) + data (variable)
 
-    // Block number for the DATA packets
+    // Buffer for reading the file data
+    char dataBuffer[BUFSIZ];
+
+    // File pointer for reading the file
+    FILE *filePtr = fopen(file, "rb");
+    if (filePtr == NULL) {
+        handle_error("sendFile", "Failed to open the file for reading", "fopen");
+    }
+
+    // Initialize the block number for the first packet
     uint16_t blockNumber = 1;
 
-    // Read and send the data in chunks
-    size_t offset = 0;
-    while (offset < dataSize) {
-        // Format of a DATA packet: opcode (2 bytes) + block number (2 bytes) + data (variable)
-        // Minimum size: 4 bytes (excluding data)
+    // Continuously read and send packets until the end of the file
+    while (1) {
+        // Read the data from the file into the buffer
+        size_t bytesRead = fread(dataBuffer, 1, BUFSIZ, filePtr);
 
-        // Calculate the size of the DATA packet
-        size_t chunkSize;
+        // Calculate the size of the headers in the DATA packet
+        size_t headerSize = sizeof(uint16_t) * 2;
 
-        if (dataSize - offset > BUFSIZ) {
-            chunkSize = BUFSIZ;
-        } else {
-            chunkSize = dataSize - offset;
-        }
-
-        size_t packetSize = sizeof(uint16_t) + sizeof(uint16_t) + chunkSize;
+        // Calculate the size of the data portion in the DATA packet
+        size_t dataSize = bytesRead + headerSize;
 
         // Allocate memory for the DATA packet
-        char *dataPacket = (char *)malloc(packetSize);
+        char *dataPacket = (char *) malloc(dataSize);
         if (dataPacket == NULL) {
-            handle_error("sendData", "Failed to allocate memory for DATA packet", "malloc");
+            fclose(filePtr);
+            handle_error("sendFile", "Failed to allocate memory for DATA packet", "malloc");
         }
 
-        // Set the opcode for DATA (3)
-        dataPacket[0] = 0;
-        dataPacket[1] = 3;
+        // Initialize the current index for building the packet
+        int currentIndex = 0;
 
-        // Set the block number (in network byte order)
-        uint16_t netBlockNumber = htons(blockNumber);
-        memcpy(dataPacket + 2, &netBlockNumber, sizeof(uint16_t));
+        // 1. Set the opcode for DATA in the DATA packet
+        dataPacket[currentIndex++] = 0;
+        dataPacket[currentIndex++] = OPCODE_DATA;
 
-        // Copy the chunk of data to the packet
-        memcpy(dataPacket + sizeof(uint16_t) + sizeof(uint16_t), file + offset, chunkSize);
+        // 2. Set the block number in the DATA packet
+        dataPacket[currentIndex] = htons(blockNumber);
+        currentIndex += sizeof(uint16_t);
+
+        // 3. Copy the file data to the DATA packet
+        memcpy(dataPacket + currentIndex, dataBuffer, bytesRead);
+        currentIndex += bytesRead;
 
         // Send the DATA packet to the server
-        ssize_t bytesSent = sendto(sockfd, dataPacket, packetSize, 0, serverAddr, sizeof(struct sockaddr));
+        ssize_t bytesSent = sendto(sockfd, dataPacket, dataSize, SENDTO_FLAGS, serverAddr, sizeof(struct sockaddr));
         if (bytesSent == -1) {
             free(dataPacket);
-            handle_error("sendData", "Failed to send DATA packet to the server", "sendto");
+            fclose(filePtr);
+            handle_error("sendFile", "Failed to send DATA packet to the server", "sendto");
         }
 
         // Display debug information about sent DATA packet
         displayDebugSentDAT(dataPacket, bytesSent);
 
-        // Send the corresponding ACK
-        sendACK(sockfd, serverAddr, blockNumber);
+        // Wait for ACK from the server
+        struct ACKPacket ackPacket;
+        ssize_t bytesReceived = recvfrom(sockfd, &ackPacket, sizeof(struct ACKPacket), RECVFROM_FLAGS, NULL, NULL);
+        if (bytesReceived == -1) {
+            fclose(filePtr);
+            handle_error("sendFile", "Failed to receive ACK packet from the server", "recvfrom");
+        }
+
+        // Display debug information about received ACK packet
+        displayDebugReceivedACK(&ackPacket);
+
+        // Check if the received packet is an ACK
+        if (ackPacket.opcode != htons(OPCODE_ACK)) {
+            fclose(filePtr);
+            handle_error("sendFile", "Received packet is not an ACK", "ackPacket");
+        }
 
         // Increment the block number for the next packet
         blockNumber++;
 
-        // Update the offset for the next chunk
-        offset += chunkSize;
-
-        // Free the allocated memory for the DATA packet sent
+        // Free the allocated memory for the DATA packet
         free(dataPacket);
+
+        // Check if the end of the file has been reached
+        if (bytesRead < BUFSIZ) {
+            break;
+        }
     }
+
+    // Close the file after sending all DATA packets
+    fclose(filePtr);
 }
+
 
 
 
@@ -415,10 +497,12 @@ void displayDebugRRQSuccess() {
 
 // Function to display debug information about received DATA packet
 void displayDebugReceivedDAT(const char *dataPacket, ssize_t bytesRead) {
+    size_t headerSize = sizeof(uint16_t) * 2;
+
     // Display received data
     printf("----- receiveFile -----\n");
-    printf("Received Data (length: %zd bytes):\n", bytesRead - sizeof(uint16_t) * 2);
-    fwrite(dataPacket + sizeof(uint16_t) * 2, 1, bytesRead - sizeof(uint16_t) * 2, stdout);
+    printf("Received Data (length: %zd bytes): ", bytesRead - headerSize);
+    fwrite(dataPacket + headerSize, 1, bytesRead - headerSize, stdout);
     printf("\n\n");
 }
 
@@ -438,10 +522,21 @@ void displayDebugWRQSuccess() {
 
 // Function to display debug information about received DATA packet
 void displayDebugSentDAT(const char *dataPacket, ssize_t bytesSent) {
+    size_t headerSize = sizeof(uint16_t) * 2;
+
     // Display sent data
     printf("----- sendFile -----\n");
-    printf("Sent Data (length: %zd bytes):\n", bytesSent - sizeof(uint16_t) * 2);
-    fwrite(dataPacket + sizeof(uint16_t) * 2, 1, bytesSent - sizeof(uint16_t) * 2, stdout);
+    printf("Sent Data (length: %zd bytes):\n", bytesSent - headerSize);
+    fwrite(dataPacket + headerSize, 1, bytesSent - headerSize, stdout);
+    printf("\n\n");
+}
+
+// Function to display debug information about received ACK packet
+void displayDebugReceivedACK(const struct ACKPacket *ackPacket) {
+    printf("----- sendFile -----\n");
+    printf("Received ACK:\n");
+    printf("Opcode: %hu\n", ntohs(ackPacket->opcode));
+    printf("Block Number: %hu\n", ntohs(ackPacket->blockNumber));
     printf("\n");
 }
 
@@ -462,28 +557,8 @@ int main(int argc, char *argv[]) {
     // Create and reserve a socket for connection to the server
     int sockfd = createSocket(serverAddr);
 
-    if (strcmp(action, "get") == 0) {
-        // Send a RRQ (Read Request) to the server
-        char *rrqPacket = sendRRQ(sockfd, serverAddr->ai_addr, file);
-
-        // Receive the file (single DATA packet) from the server
-        receiveFile(sockfd, serverAddr->ai_addr, file);
-
-        // Cleanup before exiting the program
-        cleanup(serverAddr, sockfd, rrqPacket, NULL);
-    } else if (strcmp(action, "put") == 0) {
-        // Send a WRQ (Write Request) to the server
-        char *wrqPacket = sendWRQ(sockfd, serverAddr->ai_addr, file);
-
-        // Send a file (multiple DATA Request) to the server
-        sendFile(sockfd, serverAddr->ai_addr, file);
-
-        // Cleanup before exiting the program
-        cleanup(serverAddr, sockfd, NULL, wrqPacket);
-    } else {
-        // Invalid action
-        handle_error("main", "Invalid action (use 'get' or 'put')", NULL);
-    }
+    // Process user input
+    processUserInput(sockfd, serverAddr, action, file);
 
     // Exit the program successfully
     return EXIT_SUCCESS;

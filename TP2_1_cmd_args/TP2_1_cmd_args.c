@@ -1,5 +1,12 @@
 // TP2_1_cmd_args.c
 
+/*
+    Changes from the previous code:
+
+    - Added header files (stdio.h, stdlib.h).
+    - Added new functions (handle_error, parseCmdArgs, displayDebugHostFileInfo).
+*/
+
 // -------------------- Header -------------------- //
 // Libraries
 #include <stdio.h>
