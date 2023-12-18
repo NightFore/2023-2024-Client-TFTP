@@ -44,6 +44,7 @@ char* sendRRQ(int sockfd, const struct sockaddr *serverAddr, const char *filenam
 void receiveFile(int sockfd, const struct sockaddr *serverAddr, const char *filename);
 void sendACK(int sockfd, const struct sockaddr *serverAddr, uint16_t blockNumber);
 char* sendWRQ(int sockfd, const struct sockaddr *serverAddr, const char *filename);
+void sendFile(int sockfd, const struct sockaddr *serverAddr, const char *file);
 
 // Debug Functions
 void displayDebugHostFileInfo(const char *host, const char *file);
@@ -53,6 +54,7 @@ void displayDebugRRQSuccess();
 void displayDebugReceivedDAT(const char *dataPacket, ssize_t bytesRead);
 void debugDisplayACKSuccess();
 void displayDebugWRQSuccess();
+void displayDebugSentDAT(const char *dataPacket, ssize_t bytesSent);
 
 
 
@@ -256,11 +258,14 @@ void receiveFile(int sockfd, const struct sockaddr *serverAddr, const char *file
 char* sendWRQ(int sockfd, const struct sockaddr *serverAddr, const char *filename){
     TFTP_Packet *packet;
 
-    // Calculate the size of the WRQ packet
-    size_t data_size = strlen(filename) + 1 + strlen("octet") + 1;
+    // Format of a WRQ packet: opcode (2 bytes) + filename (variable) + \0 (1 byte) + mode (variable) + \0 (1 byte)
+    // Minimum size: 9 bytes (excluding filename and mode)
+
+    // Calculate the size of the RRQ packet
+    size_t dataSize = sizeof(uint16_t) + strlen(filename) + 1 + strlen(MODE_STRING) + 1;
 
     // Allocate memory for the data field
-    packet->data = (char *) malloc(data_size);
+    packet->data = (char *) malloc(dataSize);
     if (packet->data == NULL) {
         handle_error("sendWRQ", "Failed to allocate memory for WRQ packet", "malloc");
     }
@@ -277,13 +282,13 @@ char* sendWRQ(int sockfd, const struct sockaddr *serverAddr, const char *filenam
     strcat(packet->data, "\0");
 
     // 4. Copy the mode ("octet") to the packet
-    strcat(packet->data, "octet");
+    strcat(packet->data, MODE_STRING);
 
     // 5. Add a null byte after the filename
     strcat(packet->data, "\0");
 
     // Send WRQ request to server
-    ssize_t bytesSent = sendto(sockfd, packet->data, data_size, DEFAULT_AI_FLAGS, serverAddr, sizeof(struct sockaddr));
+    ssize_t bytesSent = sendto(sockfd, packet->data, dataSize, SENDTO_FLAGS, serverAddr, sizeof(struct sockaddr));
     if (bytesSent == -1) {
         free(packet->data);
         handle_error("sendWRQ", "Failed to send WRQ packet to the server", "sendto");
@@ -293,6 +298,72 @@ char* sendWRQ(int sockfd, const struct sockaddr *serverAddr, const char *filenam
     displayDebugWRQSuccess();
 
     return packet->data;
+}
+
+// Function to send a file to the server
+void sendFile(int sockfd, const struct sockaddr *serverAddr, const char *file) {
+    // Calculate the size of the data
+    size_t dataSize = strlen(file);
+
+    // Block number for the DATA packets
+    uint16_t blockNumber = 1;
+
+    // Read and send the data in chunks
+    size_t offset = 0;
+    while (offset < dataSize) {
+        // Format of a DATA packet: opcode (2 bytes) + block number (2 bytes) + data (variable)
+        // Minimum size: 4 bytes (excluding data)
+
+        // Calculate the size of the DATA packet
+        size_t chunkSize;
+
+        if (dataSize - offset > BUFSIZ) {
+            chunkSize = BUFSIZ;
+        } else {
+            chunkSize = dataSize - offset;
+        }
+
+        size_t packetSize = sizeof(uint16_t) + sizeof(uint16_t) + chunkSize;
+
+        // Allocate memory for the DATA packet
+        char *dataPacket = (char *)malloc(packetSize);
+        if (dataPacket == NULL) {
+            handle_error("sendData", "Failed to allocate memory for DATA packet", "malloc");
+        }
+
+        // Set the opcode for DATA (3)
+        dataPacket[0] = 0;
+        dataPacket[1] = 3;
+
+        // Set the block number (in network byte order)
+        uint16_t netBlockNumber = htons(blockNumber);
+        memcpy(dataPacket + 2, &netBlockNumber, sizeof(uint16_t));
+
+        // Copy the chunk of data to the packet
+        memcpy(dataPacket + sizeof(uint16_t) + sizeof(uint16_t), file + offset, chunkSize);
+
+        // Send the DATA packet to the server
+        ssize_t bytesSent = sendto(sockfd, dataPacket, packetSize, 0, serverAddr, sizeof(struct sockaddr));
+        if (bytesSent == -1) {
+            free(dataPacket);
+            handle_error("sendData", "Failed to send DATA packet to the server", "sendto");
+        }
+
+        // Display debug information about sent DATA packet
+        displayDebugSentDAT(dataPacket, bytesSent);
+
+        // Send the corresponding ACK
+        sendACK(sockfd, serverAddr, blockNumber);
+
+        // Increment the block number for the next packet
+        blockNumber++;
+
+        // Update the offset for the next chunk
+        offset += chunkSize;
+
+        // Free the allocated memory for the DATA packet sent
+        free(dataPacket);
+    }
 }
 
 
@@ -358,6 +429,15 @@ void displayDebugWRQSuccess() {
     printf("\n");
 }
 
+// Function to display debug information about received DATA packet
+void displayDebugSentDAT(const char *dataPacket, ssize_t bytesSent) {
+    // Display sent data
+    printf("----- sendFile -----\n");
+    printf("Sent Data (length: %zd bytes): ", bytesSent - sizeof(uint16_t) * 2);
+    fwrite(dataPacket + sizeof(uint16_t) * 2, 1, bytesSent - sizeof(uint16_t) * 2, stdout);
+    printf("\n\n");
+}
+
 
 
 // -------------------- Main -------------------- //
@@ -382,6 +462,9 @@ int main(int argc, char *argv[]) {
 
     // Send a WRQ (Write Request) to the server
     char *wrqPacket = sendWRQ(sockfd, serverAddr->ai_addr, file);
+
+    // Send a file (multiple DATA Request) to the server
+    sendFile(sockfd, serverAddr->ai_addr, file);
 
     // Cleanup before exiting the program
     cleanup(serverAddr, sockfd, rrqPacket, wrqPacket);
