@@ -189,23 +189,34 @@ void receiveFile(int sockfd, const struct sockaddr *serverAddr, const char *file
     // Format of a DATA packet: opcode (2 bytes) + block number (2 bytes) + data (variable)
     // Minimum size: 4 bytes (excluding data)
 
-    // Buffer for receiving the DATA packet
-    char dataPacket[BUFSIZ];
-
+    // Initialize the block number for the first packet
     uint16_t blockNumber = 1;
 
-    // Receive the DATA packet from the server
-    ssize_t bytesRead = recv(sockfd, dataPacket, BUFSIZ, RECV_FLAGS);
-    if (bytesRead == -1) {
-        handle_error("receiveFile", "Failed to receive DATA packet from the server", "recv");
+    // Continuously receive and acknowledge packets until the transfer is complete
+    while (1) {
+        // Buffer for receiving the DATA packet
+        char dataPacket[BUFSIZ];
+
+        // Receive the DATA packet from the server
+        ssize_t bytesRead = recv(sockfd, dataPacket, BUFSIZ, RECV_FLAGS);
+        if (bytesRead == -1) {
+            handle_error("receiveFile", "Failed to receive DATA packet from the server", "recv");
+        }
+
+        // Display debug information about received DATA packet
+        displayDebugReceivedDAT(dataPacket, bytesRead);
+
+        // Send the corresponding ACK
+        sendACK(sockfd, serverAddr, blockNumber);
+
+        // Increment the block number for the next packet
+        blockNumber++;
+
+        // Check if this is the last packet
+        if (bytesRead < BUFSIZ) {
+            break;
+        }
     }
-
-    // Display debug information about received DATA packet
-    displayDebugReceivedDAT(dataPacket, bytesRead);
-
-    // Send the corresponding ACK
-    sendACK(sockfd, serverAddr, blockNumber);
-
 }
 
 // Function to send an ACK packet
