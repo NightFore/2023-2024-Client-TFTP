@@ -66,6 +66,28 @@ void handle_error(const char *location, const char *message, const char *perror_
     exit(EXIT_FAILURE);
 }
 
+// Function to send an ACK packet
+void sendACK(int sockfd, const struct sockaddr *serverAddr, uint16_t blockNumber) {
+    // Create an ACK packet structure
+    struct ACKPacket ackPacket;
+    
+    // Set the opcode for ACK (4 for ACK) and convert to network byte order
+    ackPacket.opcode = htons(4);
+
+    // Set the block number and convert to network byte order
+    ackPacket.blockNumber = htons(blockNumber);
+
+    // Send the ACK packet to the server
+    ssize_t bytesSent = sendto(sockfd, &ackPacket, sizeof(struct ACKPacket), SENDTO_FLAGS, serverAddr, sizeof(struct sockaddr));
+
+    // Check if the sendto operation was successful
+    if (bytesSent == -1) {
+        handle_error("sendACK", "Failed to send ACK packet to the server", "sendto");
+    }
+
+    debugDisplayACKSuccess();
+}
+
 // Function to perform cleanup before exiting the program
 void cleanup(struct addrinfo *serverAddr, int sockfd, char *rrqPacket) {
     // Free the linked list of address info
@@ -219,27 +241,6 @@ void receiveFile(int sockfd, const struct sockaddr *serverAddr, const char *file
     }
 }
 
-// Function to send an ACK packet
-void sendACK(int sockfd, const struct sockaddr *serverAddr, uint16_t blockNumber) {
-    // Create an ACK packet structure
-    struct ACKPacket ackPacket;
-    
-    // Set the opcode for ACK (4 for ACK) and convert to network byte order
-    ackPacket.opcode = htons(4);
-
-    // Set the block number and convert to network byte order
-    ackPacket.blockNumber = htons(blockNumber);
-
-    // Send the ACK packet to the server
-    ssize_t bytesSent = sendto(sockfd, &ackPacket, sizeof(struct ACKPacket), SENDTO_FLAGS, serverAddr, sizeof(struct sockaddr));
-
-    // Check if the sendto operation was successful
-    if (bytesSent == -1) {
-        handle_error("sendACK", "Failed to send ACK packet to the server", "sendto");
-    }
-
-    debugDisplayACKSuccess();
-}
 
 
 // -------------------- Debug -------------------- //
