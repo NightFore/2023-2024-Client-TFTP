@@ -20,7 +20,13 @@
 #define RRQ_OPCODE_READ 1           // Read Request opcode
 #define MODE_STRING "octet"         // Default Mode for file transfer
 #define SENDTO_FLAGS 0              // No special flags for the sendto function
-#define RECVFROM_FLAGS 0            // No special flags for the recvfrom function
+#define RECV_FLAGS 0                // No special flags for the recv function
+
+// Structure definition for ACK packet
+struct ACKPacket {
+    uint16_t opcode;                // Operation code
+    uint16_t blockNumber;           // Block number
+};
 
 // Helper Functions
 void handle_error(const char *location, const char *message, const char *perror_message);
@@ -32,13 +38,15 @@ struct addrinfo* getAddressInfo(const char *host, const char *port);
 int createSocket(const struct addrinfo *serverAddr);
 char* sendRRQ(int sockfd, const struct sockaddr *serverAddr, const char *filename);
 void receiveFile(int sockfd, const struct sockaddr *serverAddr, const char *filename);
+void sendACK(int sockfd, const struct sockaddr *serverAddr, uint16_t blockNumber);
 
 // Debug Functions
 void displayDebugHostFileInfo(const char *host, const char *file);
 void displayDebugAddressInfo(const struct addrinfo *serverAddr);
-void displayDebugSocketCreation(int sockfd, const struct addrinfo *serverAddr);
+void displayDebugSocketCreation(int sockfd);
 void displayDebugRRQSuccess();
 void displayDebugReceivedDAT(const char *dataPacket, ssize_t bytesRead);
+void debugDisplayACKSuccess();
 
 
 
@@ -128,7 +136,7 @@ int createSocket(const struct addrinfo *serverAddr) {
     }
 
     // Display socket information
-    displayDebugSocketCreation(sockfd, serverAddr);
+    displayDebugSocketCreation(sockfd);
 
     return sockfd;
 }
@@ -176,7 +184,7 @@ char* sendRRQ(int sockfd, const struct sockaddr *serverAddr, const char *filenam
     return rrqPacket;
 }
 
-// Function to receive a file (single DATA packet) from the server
+// Function to receive a file (multiple DATA packets) from the server
 void receiveFile(int sockfd, const struct sockaddr *serverAddr, const char *filename) {
     // Format of a DATA packet: opcode (2 bytes) + block number (2 bytes) + data (variable)
     // Minimum size: 4 bytes (excluding data)
@@ -184,19 +192,43 @@ void receiveFile(int sockfd, const struct sockaddr *serverAddr, const char *file
     // Buffer for receiving the DATA packet
     char dataPacket[BUFSIZ];
 
+    uint16_t blockNumber = 1;
+
     // Receive the DATA packet from the server
-    ssize_t bytesRead = recvfrom(sockfd, dataPacket, BUFSIZ, RECVFROM_FLAGS, NULL, NULL);
+    ssize_t bytesRead = recv(sockfd, dataPacket, BUFSIZ, RECV_FLAGS);
     if (bytesRead == -1) {
-        handle_error("receiveFile", "Failed to receive DATA packet from the server", "recvfrom");
+        handle_error("receiveFile", "Failed to receive DATA packet from the server", "recv");
     }
 
     // Display debug information about received DATA packet
     displayDebugReceivedDAT(dataPacket, bytesRead);
 
-    // Extract data from the received packet (excluding opcode and block number)
-    const char *receivedData = sizeof(uint16_t) * 2 + dataPacket;
+    // Send the corresponding ACK
+    sendACK(sockfd, serverAddr, blockNumber);
+
 }
 
+// Function to send an ACK packet
+void sendACK(int sockfd, const struct sockaddr *serverAddr, uint16_t blockNumber) {
+    // Create an ACK packet structure
+    struct ACKPacket ackPacket;
+    
+    // Set the opcode for ACK (4 for ACK) and convert to network byte order
+    ackPacket.opcode = htons(4);
+
+    // Set the block number and convert to network byte order
+    ackPacket.blockNumber = htons(blockNumber);
+
+    // Send the ACK packet to the server
+    ssize_t bytesSent = sendto(sockfd, &ackPacket, sizeof(struct ACKPacket), SENDTO_FLAGS, serverAddr, sizeof(struct sockaddr));
+
+    // Check if the sendto operation was successful
+    if (bytesSent == -1) {
+        handle_error("sendACK", "Failed to send ACK packet to the server", "sendto");
+    }
+
+    debugDisplayACKSuccess();
+}
 
 
 // -------------------- Debug -------------------- //
@@ -224,7 +256,7 @@ void displayDebugAddressInfo(const struct addrinfo *serverAddr) {
 }
 
 // Function to display debug information about socket creation
-void displayDebugSocketCreation(int sockfd, const struct addrinfo *serverAddr) {
+void displayDebugSocketCreation(int sockfd) {
     printf("----- createSocket -----\n");
     printf("Socket Descriptor: %d\n", sockfd);
     printf("\n");
@@ -239,16 +271,17 @@ void displayDebugRRQSuccess() {
 
 // Function to display debug information about received DATA packet
 void displayDebugReceivedDAT(const char *dataPacket, ssize_t bytesRead) {
-    // Extract opcode and block number
-    uint16_t opcode = ntohs(*(uint16_t *)dataPacket);
-    uint16_t blockNumber = ntohs(*(uint16_t *)(dataPacket + sizeof(uint16_t)));
-
     // Display received data
     printf("----- receiveFile -----\n");
-    printf("Opcode: %d\n", opcode);
-    printf("Block Number: %d\n", blockNumber);
-    printf("Received Data (length: %zd bytes):\n", bytesRead - sizeof(uint16_t) * 2);
+    printf("Received Data (length: %zd bytes): ", bytesRead - sizeof(uint16_t) * 2);
     fwrite(dataPacket + sizeof(uint16_t) * 2, 1, bytesRead - sizeof(uint16_t) * 2, stdout);
+    printf("\n\n");
+}
+
+// Function to display a debug success message for ACK packet transmission
+void debugDisplayACKSuccess() {
+    printf("----- sendACK -----\n");
+    printf("ACK packet sent successfully.\n");
     printf("\n");
 }
 
