@@ -1,4 +1,4 @@
-// TP2_4_gettftp.c
+// TP2_6_blocksize_option.c
 
 // -------------------- Header -------------------- //
 // Libraries
@@ -21,6 +21,7 @@
 #define MODE_STRING "octet"         // Default Mode for file transfer
 #define SENDTO_FLAGS 0              // No special flags for the sendto function
 #define RECV_FLAGS 0                // No special flags for the recv function
+#define DEFAULT_BLOCK_SIZE "512"    // Default block size in ASCII
 
 // Structure definition for ACK packet
 struct ACKPacket {
@@ -45,8 +46,8 @@ void displayDebugHostFileInfo(const char *host, const char *file);
 void displayDebugAddressInfo(const struct addrinfo *serverAddr);
 void displayDebugSocketCreation(int sockfd);
 void displayDebugRRQSuccess();
-void displayDebugReceivedDAT(const char *dataPacket, ssize_t bytesRead);
-void debugDisplayACKSuccess();
+void displayDebugReceivedDAT(const char *dataPacket, ssize_t bytesRead, uint16_t blockNumber);
+void debugDisplayACKSuccess(uint16_t blockNumber);
 
 
 
@@ -85,7 +86,7 @@ void sendACK(int sockfd, const struct sockaddr *serverAddr, uint16_t blockNumber
         handle_error("sendACK", "Failed to send ACK packet to the server", "sendto");
     }
 
-    debugDisplayACKSuccess();
+    debugDisplayACKSuccess(blockNumber);
 }
 
 // Function to perform cleanup before exiting the program
@@ -165,11 +166,11 @@ int createSocket(const struct addrinfo *serverAddr) {
 
 // Function to send a RRQ (Read Request) to the server
 char* sendRRQ(int sockfd, const struct sockaddr *serverAddr, const char *filename) {
-    // Format of a RRQ packet: opcode (2 bytes) + filename (variable) + \0 (1 byte) + mode (variable) + \0 (1 byte)
-    // Minimum size: 9 bytes (excluding filename and mode)
+    // Format of a RRQ packet: opcode (2 bytes) + filename (variable) + \0 (1 byte) + mode (variable) + \0 (1 byte) + blksize (variable) + \0 (1 byte) + #octets (variable) + \0 (1 byte)
+    // Minimum size: 13 bytes (excluding filename, mode, blksize, and #octets)
 
     // Calculate the size of the RRQ packet
-    size_t packetSize = sizeof(uint16_t) + strlen(filename) + 1 + strlen(MODE_STRING) + 1;
+    size_t packetSize = sizeof(uint16_t) + strlen(filename) + 1 + strlen(MODE_STRING) + 1 + strlen("blksize") + 1 + strlen(DEFAULT_BLOCK_SIZE) + 1 + strlen("octets") + 1;
 
     // Allocate memory for the RRQ packet
     char *rrqPacket = (char *) malloc(packetSize);
@@ -177,21 +178,40 @@ char* sendRRQ(int sockfd, const struct sockaddr *serverAddr, const char *filenam
         handle_error("sendRRQ", "Failed to allocate memory for RRQ packet", "malloc");
     }
 
+    // Initialize the current index for building the packet
+    int currentIndex = 0;
+
     // 1. Set the opcode for Read Request (RRQ) in the RRQ packet
-    rrqPacket[0] = 0;
-    rrqPacket[1] = RRQ_OPCODE_READ;
+    rrqPacket[currentIndex++] = 0;
+    rrqPacket[currentIndex++] = RRQ_OPCODE_READ;
 
     // 2. Copy the filename to the packet
-    strcpy(rrqPacket + sizeof(uint16_t), filename);
+    strcpy(rrqPacket + currentIndex, filename);
+    currentIndex += strlen(filename);
 
     // 3. Add a null byte after the filename
-    rrqPacket[sizeof(uint16_t) + strlen(filename)] = '\0';
+    rrqPacket[currentIndex++] = '\0';
 
     // 4. Copy the file transfer mode ("octet") to the RRQ packet
-    strcpy(rrqPacket + sizeof(uint16_t) + strlen(filename) + 1, MODE_STRING);
+    strcpy(rrqPacket + currentIndex, MODE_STRING);
+    currentIndex += strlen(MODE_STRING);
 
     // 5. Add a null byte after the mode
-    rrqPacket[sizeof(uint16_t) + strlen(filename) + 1 + strlen(MODE_STRING)] = '\0';
+    rrqPacket[currentIndex++] = '\0';
+
+    // 6. Copy the block size option to the RRQ packet
+    strcpy(rrqPacket + currentIndex, "blksize");
+    currentIndex += strlen("blksize");
+
+    // 7. Add a null byte after the blocksize option
+    rrqPacket[currentIndex++] = '\0';
+
+    // 8. Copy the block size value to the RRQ packet
+    currentIndex += sizeof(DEFAULT_BLOCK_SIZE);
+    strcpy(rrqPacket + currentIndex, DEFAULT_BLOCK_SIZE);
+
+    // 9. Add a null byte after the size
+    rrqPacket[currentIndex++] = '\0';
 
     // Send the RRQ packet to the server
     ssize_t bytesSent = sendto(sockfd, rrqPacket, packetSize, SENDTO_FLAGS, serverAddr, sizeof(struct sockaddr));
@@ -226,7 +246,7 @@ void receiveFile(int sockfd, const struct sockaddr *serverAddr, const char *file
         }
 
         // Display debug information about received DATA packet
-        displayDebugReceivedDAT(dataPacket, bytesRead);
+        displayDebugReceivedDAT(dataPacket, bytesRead, blockNumber);
 
         // Send the corresponding ACK
         sendACK(sockfd, serverAddr, blockNumber);
@@ -282,18 +302,17 @@ void displayDebugRRQSuccess() {
 }
 
 // Function to display debug information about received DATA packet
-void displayDebugReceivedDAT(const char *dataPacket, ssize_t bytesRead) {
-    // Display received data
+void displayDebugReceivedDAT(const char *dataPacket, ssize_t bytesRead, uint16_t blockNumber) {
     printf("----- receiveFile -----\n");
-    printf("Received Data (length: %zd bytes): ", bytesRead - sizeof(uint16_t) * 2);
+    printf("Received DATA Packet (Block Number: %d, Length: %zd bytes):\n", blockNumber, bytesRead - sizeof(uint16_t) * 2);
     fwrite(dataPacket + sizeof(uint16_t) * 2, 1, bytesRead - sizeof(uint16_t) * 2, stdout);
     printf("\n\n");
 }
 
 // Function to display a debug success message for ACK packet transmission
-void debugDisplayACKSuccess() {
+void debugDisplayACKSuccess(uint16_t blockNumber) {
     printf("----- sendACK -----\n");
-    printf("ACK packet sent successfully.\n");
+    printf("ACK packet sent successfully for block number: %d\n", blockNumber);
     printf("\n");
 }
 
@@ -316,7 +335,7 @@ int main(int argc, char *argv[]) {
     // Send a RRQ (Read Request) to the server
     char *rrqPacket = sendRRQ(sockfd, serverAddr->ai_addr, file);
 
-    // Receive the file (single DATA packet) from the server
+    // Receive the file from the server
     receiveFile(sockfd, serverAddr->ai_addr, file);
 
     // Cleanup before exiting the program
