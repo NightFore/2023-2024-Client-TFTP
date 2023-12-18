@@ -1,4 +1,4 @@
-// TP2_3_socket_connection.c
+// TP2_5_puttftp.c
 
 // -------------------- Header -------------------- //
 // Libraries
@@ -11,12 +11,22 @@
 #include <unistd.h>
 
 // Constants
-#define DEFAULT_AI_FAMILY AF_INET       // Use IPv4 by default
-#define DEFAULT_AI_SOCKTYPE 0           // Any socket type by default
-#define DEFAULT_AI_PROTOCOL 0           // Any protocol by default
-#define DEFAULT_AI_FLAGS 0              // No flags by default
+#define TFTP_SERVER_PORT "69"       // Default TFTP server port
+#define DEFAULT_AI_FAMILY AF_INET   // Use IPv4 by default
+#define DEFAULT_AI_SOCKTYPE 0       // Any socket type by default
+#define DEFAULT_AI_PROTOCOL 0       // Any protocol by default
+#define DEFAULT_AI_FLAGS 0          // No flags by default
+#define RRQ_OPCODE_READ 1           // Read Request opcode
+#define MODE_STRING "octet"         // Default Mode for file transfer
+#define SENDTO_FLAGS 0              // No special flags for the sendto function
+#define RECV_FLAGS 0                // No special flags for the recv function
 
-// Struct typedef
+// Structure definitions
+struct ACKPacket {
+    uint16_t opcode;                // Operation code
+    uint16_t blockNumber;           // Block number
+};
+
 typedef struct {
     short opcode;                       // Operational code
     char *data;
@@ -189,7 +199,7 @@ char* sendWRQ(int sockfd, const struct sockaddr *serverAddr, const char *filenam
     size_t data_size = strlen(filename) + 1 + strlen("octet") + 1;
 
     // Allocate memory for the data field
-    packet->data = malloc(data_size);
+    packet->data = (char *) malloc(data_size);
     if (packet->data == NULL) {
         handle_error("sendWRQ", "Failed to allocate memory for WRQ packet", "malloc");
     }
