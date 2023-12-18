@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -27,11 +28,6 @@ struct ACKPacket {
     uint16_t opcode;                // Operation code
     uint16_t blockNumber;           // Block number
 };
-
-typedef struct {
-    short opcode;                       // Operational code
-    char *data;
-} TFTP_Packet;
 
 // Helper Functions
 void handle_error(const char *location, const char *message, const char *perror_message);
@@ -274,7 +270,7 @@ char* sendWRQ(int sockfd, const struct sockaddr *serverAddr, const char *filenam
     // Allocate memory for the WRQ packet
     char *wrqPacket = (char *) malloc(packetSize);
     if (wrqPacket == NULL) {
-        handle_error("sendRRQ", "Failed to allocate memory for RRQ packet", "malloc");
+        handle_error("sendWRQ", "Failed to allocate memory for WRQ packet", "malloc");
     }
 
     // Initialize the current index for building the packet
@@ -291,22 +287,22 @@ char* sendWRQ(int sockfd, const struct sockaddr *serverAddr, const char *filenam
     // 3. Add a null byte after the filename
     wrqPacket[currentIndex++] = '\0';
 
-    // 4. Copy the file transfer mode ("octet") to the RRQ packet
+    // 4. Copy the file transfer mode ("octet") to the WRQ packet
     strcpy(wrqPacket + currentIndex, MODE_STRING);
     currentIndex += strlen(MODE_STRING);
 
     // 5. Add a null byte after the mode
     wrqPacket[currentIndex++] = '\0';
 
-    // Send the RRQ packet to the server
+    // Send the WRQ packet to the server
     ssize_t bytesSent = sendto(sockfd, wrqPacket, packetSize, SENDTO_FLAGS, serverAddr, sizeof(struct sockaddr));
     if (bytesSent == -1) {
         free(wrqPacket);
-        handle_error("sendRRQ", "Failed to send RRQ packet to the server", "sendto");
+        handle_error("sendWRQ", "Failed to send WRQ packet to the server", "sendto");
     }
 
-    // Display a success message for the RRQ packet transmission
-    displayDebugRRQSuccess();
+    // Display a success message for the WRQ packet transmission
+    displayDebugWRQSuccess();
 
     return wrqPacket;
 }
@@ -423,7 +419,7 @@ void displayDebugReceivedDAT(const char *dataPacket, ssize_t bytesRead) {
     printf("----- receiveFile -----\n");
     printf("Received Data (length: %zd bytes):\n", bytesRead - sizeof(uint16_t) * 2);
     fwrite(dataPacket + sizeof(uint16_t) * 2, 1, bytesRead - sizeof(uint16_t) * 2, stdout);
-    printf("\n");
+    printf("\n\n");
 }
 
 // Function to display a debug success message for ACK packet transmission
@@ -444,9 +440,9 @@ void displayDebugWRQSuccess() {
 void displayDebugSentDAT(const char *dataPacket, ssize_t bytesSent) {
     // Display sent data
     printf("----- sendFile -----\n");
-    printf("Sent Data (length: %zd bytes): ", bytesSent - sizeof(uint16_t) * 2);
+    printf("Sent Data (length: %zd bytes):\n", bytesSent - sizeof(uint16_t) * 2);
     fwrite(dataPacket + sizeof(uint16_t) * 2, 1, bytesSent - sizeof(uint16_t) * 2, stdout);
-    printf("\n\n");
+    printf("\n");
 }
 
 
