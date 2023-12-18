@@ -1,29 +1,31 @@
 // TP2_2_getaddrinfo.c
 
 // -------------------- Header -------------------- //
+// Libraries
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 
-// Define constants for address family, socket type, protocol, and flags
+// Constants
 #define DEFAULT_AI_FAMILY AF_INET    // Use IPv4 by default
 #define DEFAULT_AI_SOCKTYPE 0        // Any socket type by default
 #define DEFAULT_AI_PROTOCOL 0        // Any protocol by default
 #define DEFAULT_AI_FLAGS 0           // No flags by default
 
-// Function prototypes
+// Core Functions
 void parseCmdArgs(int argc, char *argv[], char **host, char **file);
 struct addrinfo* getAddressInfo(const char *host, const char *port);
+
+// Debug Functions
 void displayDebugHostFileInfo(const char *host, const char *file);
 void displayDebugAddressInfo(const struct addrinfo *serverAddr);
 
 
 
-// -------------------- Functions -------------------- //
+// -------------------- Operations -------------------- //
 // Function to parse command line arguments
 void parseCmdArgs(int argc, char *argv[], char **host, char **file) {
     // Check the number of arguments
