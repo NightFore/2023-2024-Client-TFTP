@@ -49,7 +49,7 @@ To download a file from the TFTP server and obtain server information, use the f
 Example:
 
 ```bash
-./tftp_client srvtpinfo1.ensea.fr test.txt get
+./tftp_client host test.txt get
 ```
 
 ### 2. Put File
@@ -66,7 +66,7 @@ To upload a file to the TFTP server and obtain server information, use the follo
 Example:
 
 ```bash
-./tftp_client srvtpinfo1.ensea.fr test.txt put
+./tftp_client host test.txt put
 ```
 
 ## Code Structure
@@ -114,9 +114,9 @@ Example:
 1. **Arguments**
 
 ```bash
-./TP2_1_cmd_args srvtpinfo1.ensea.fr test.txt
+./TP2_1_cmd_args host test.txt
 ----- parseCmdArgs -----
-Host: srvtpinfo1.ensea.fr
+Host: host
 File: test.txt
 ```
 
@@ -125,13 +125,13 @@ This command tests the parsing of command-line arguments in the `parseCmdArgs` f
 2. **Address Info**
 
 ```bash
-./TP2_2_getaddrinfo srvtpinfo1.ensea.fr test.txt
+./TP2_2_getaddrinfo host test.txt
 ----- getAddressInfo -----
 Address Family: 2
 Socket Type: 2
 Protocol: 17
 Flags: 0
-IP Address: xx.xx.xx.xx (Note: IP address has been hidden for privacy)
+IP Address: xx.xx.xx.xx
 ```
 
 The obtained information from `getAddrInfo` includes the following details:
@@ -141,10 +141,12 @@ The obtained information from `getAddrInfo` includes the following details:
 - **Flags:** There are no special flags set (value: 0).
 - **IP Address:** The IP address.
 
+*Note: IP address has been hidden for privacy*
+
 3. **Socket**
 
 ```bash
-./TP2_3_socket_connection srvtpinfo1.ensea.fr test.txt
+./TP2_3_socket_connection host test.txt
 ----- createSocket -----
 Socket Descriptor: 3
 ```
@@ -153,11 +155,10 @@ This command demonstrates the successful creation of a UDP socket and the establ
 
 *Note: The socket descriptor number (in this case, "3") is assigned by the operating system and serves as an identifier for the created socket.*
 
-
 4. **gettftp**
 
 ```bash
-./TP2_4_gettftp srvtpinfo1.ensea.fr test.txt
+./TP2_4_gettftp host test.txt
 ----- sendRRQ -----
 RRQ packet sent successfully.
 
@@ -174,7 +175,7 @@ This command tests the get operation by initiating a Read Request (RRQ) packet, 
 5. **puttftp**
 
 ```bash
-./TP2_5_puttftp srvtpinfo1.ensea.fr test.txt
+./TP2_5_puttftp host test.txt
 ----- sendWRQ -----
 WRQ packet sent successfully.
 
@@ -189,14 +190,13 @@ Block Number: 1
 ```
 
 This command tests the put operation by initiating a Write Request (WRQ) packet, sending a file containing the text "HelloWorld," and successfully receiving acknowledgment packets from the TFTP server. In the received acknowledgment packet, the opcode "4" signifies that it is an acknowledgment packet, and the block number is "1," indicating the acknowledgement for the first block of data sent.
-Corrige le texte de la partie "6. **blocksize**" comme suit:
 
 6. **blocksize**
 
 **Receive Operation:**
 
 ```bash
-./TP2_6_blocksize_option srvtpinfo1.ensea.fr test.txt get
+./TP2_6_blocksize_option host test.txt get
 ----- sendRRQ -----
 RRQ packet sent successfully.
 
@@ -213,7 +213,7 @@ This command initiates a Read Request (RRQ) packet and successfully receives a f
 **Send Operation:**
 
 ```bash
-./TP2_6_blocksize_option srvtpinfo1.ensea.fr test.txt put
+./TP2_6_blocksize_option host test.txt put
 ----- sendWRQ -----
 WRQ packet sent successfully.
 
@@ -229,10 +229,12 @@ Block Number: 25196
 
 However, the send operation encounters an issue. An attempt to send an acknowledgment (ACK) packet is made, but an error occurs. The received packet shows an unknown opcode and an unexpected block number.
 
+*Note: The content of the file test.txt was modified to contain the text "HelloWrite" for this test.*
+
 ## Contributing
 
 This project is part of an academic assignment and is not open to external contributions.
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the MIT License.

@@ -260,7 +260,7 @@ void receiveFile(int sockfd, const struct sockaddr *serverAddr, const char *file
 void sendACK(int sockfd, const struct sockaddr *serverAddr, uint16_t blockNumber) {
     // Create an ACK packet structure
     struct ACKPacket ackPacket;
-    
+
     // Set the opcode for ACK
     ackPacket.opcode = htons(OPCODE_ACK);
 

@@ -309,7 +309,6 @@ void receiveFile(int sockfd, const struct sockaddr *serverAddr, const char *file
     }
 }
 
-
 // Function to send an ACK packet
 void sendACK(int sockfd, const struct sockaddr *serverAddr, uint16_t blockNumber) {
     // Create an ACK packet structure
