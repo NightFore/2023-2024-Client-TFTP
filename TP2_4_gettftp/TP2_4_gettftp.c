@@ -30,7 +30,7 @@ struct ACKPacket {
 
 // Helper Functions
 void handle_error(const char *location, const char *message, const char *perror_message);
-void cleanup(int sockfd, struct addrinfo *serverAddr, char *rrqPacket);
+void cleanup(struct addrinfo *serverAddr, int sockfd, char *rrqPacket);
 
 // Core Functions
 void parseCmdArgs(int argc, char *argv[], char **host, char **file);
@@ -67,15 +67,15 @@ void handle_error(const char *location, const char *message, const char *perror_
 }
 
 // Function to perform cleanup before exiting the program
-void cleanup(int sockfd, struct addrinfo *serverAddr, char *rrqPacket) {
-    // Close the socket
-    if (sockfd != -1) {
-        close(sockfd);
-    }
-
+void cleanup(struct addrinfo *serverAddr, int sockfd, char *rrqPacket) {
     // Free the linked list of address info
     if (serverAddr != NULL) {
         freeaddrinfo(serverAddr);
+    }
+
+    // Close the socket
+    if (sockfd != -1) {
+        close(sockfd);
     }
 
     // Free the allocated memory for the RRQ packet
@@ -319,7 +319,7 @@ int main(int argc, char *argv[]) {
     receiveFile(sockfd, serverAddr->ai_addr, file);
 
     // Cleanup before exiting the program
-    cleanup(sockfd, serverAddr, rrqPacket);
+    cleanup(serverAddr, sockfd, rrqPacket);
 
     // Exit the program successfully
     return EXIT_SUCCESS;
