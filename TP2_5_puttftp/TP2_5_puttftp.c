@@ -17,6 +17,7 @@
 #define DEFAULT_AI_PROTOCOL 0       // Any protocol by default
 #define DEFAULT_AI_FLAGS 0          // No flags by default
 #define RRQ_OPCODE_READ 1           // Read Request opcode
+#define WRQ_OPCODE_WRITE 2          // Write Request opcode
 #define MODE_STRING "octet"         // Default Mode for file transfer
 #define SENDTO_FLAGS 0              // No special flags for the sendto function
 #define RECV_FLAGS 0                // No special flags for the recv function
@@ -37,7 +38,7 @@ void handle_error(const char *location, const char *message, const char *perror_
 void cleanup(struct addrinfo *serverAddr, int sockfd, char *rrqPacket, char *wrqPacket);
 
 // Core Functions
-void parseCmdArgs(int argc, char *argv[], char **host, char **file);
+void parseCmdArgs(int argc, char *argv[], char **host, char **file, char **action);
 struct addrinfo* getAddressInfo(const char *host, const char *port);
 int createSocket(const struct addrinfo *serverAddr);
 char* sendRRQ(int sockfd, const struct sockaddr *serverAddr, const char *filename);
@@ -123,15 +124,16 @@ void cleanup(struct addrinfo *serverAddr, int sockfd, char *rrqPacket, char *wrq
 
 // -------------------- Core Functions -------------------- //
 // Function to parse command line arguments
-void parseCmdArgs(int argc, char *argv[], char **host, char **file) {
+void parseCmdArgs(int argc, char *argv[], char **host, char **file, char **action) {
     // Check the number of arguments
-    if (argc != 3) {
-        handle_error("parseCmdArgs", "Usage: <host> <file>", "argc");
+    if (argc != 4) {
+        handle_error("parseCmdArgs", "Usage: <host> <file> <get/put>", "argc");
     }
 
     // Retrieve information from the command-line arguments
     *host = argv[1];
     *file = argv[2];
+    *action = argv[3];
 
     // Display host information
     displayDebugHostFileInfo(*host, *file);
@@ -190,21 +192,26 @@ char* sendRRQ(int sockfd, const struct sockaddr *serverAddr, const char *filenam
         handle_error("sendRRQ", "Failed to allocate memory for RRQ packet", "malloc");
     }
 
+    // Initialize the current index for building the packet
+    int currentIndex = 0;
+
     // 1. Set the opcode for Read Request (RRQ) in the RRQ packet
-    rrqPacket[0] = 0;
-    rrqPacket[1] = RRQ_OPCODE_READ;
+    rrqPacket[currentIndex++] = 0;
+    rrqPacket[currentIndex++] = RRQ_OPCODE_READ;
 
     // 2. Copy the filename to the packet
-    strcpy(rrqPacket + sizeof(uint16_t), filename);
+    strcpy(rrqPacket + currentIndex, filename);
+    currentIndex += strlen(filename);
 
     // 3. Add a null byte after the filename
-    rrqPacket[sizeof(uint16_t) + strlen(filename)] = '\0';
+    rrqPacket[currentIndex++] = '\0';
 
     // 4. Copy the file transfer mode ("octet") to the RRQ packet
-    strcpy(rrqPacket + sizeof(uint16_t) + strlen(filename) + 1, MODE_STRING);
+    strcpy(rrqPacket + currentIndex, MODE_STRING);
+    currentIndex += strlen(MODE_STRING);
 
     // 5. Add a null byte after the mode
-    rrqPacket[sizeof(uint16_t) + strlen(filename) + 1 + strlen(MODE_STRING)] = '\0';
+    rrqPacket[currentIndex++] = '\0';
 
     // Send the RRQ packet to the server
     ssize_t bytesSent = sendto(sockfd, rrqPacket, packetSize, SENDTO_FLAGS, serverAddr, sizeof(struct sockaddr));
@@ -254,50 +261,54 @@ void receiveFile(int sockfd, const struct sockaddr *serverAddr, const char *file
     }
 }
 
-// Function to send a WRQ (Write Request) to the server
-char* sendWRQ(int sockfd, const struct sockaddr *serverAddr, const char *filename){
-    TFTP_Packet *packet;
 
+
+// Function to send a WRQ (Write Request) to the server
+char* sendWRQ(int sockfd, const struct sockaddr *serverAddr, const char *filename) {
     // Format of a WRQ packet: opcode (2 bytes) + filename (variable) + \0 (1 byte) + mode (variable) + \0 (1 byte)
     // Minimum size: 9 bytes (excluding filename and mode)
 
-    // Calculate the size of the RRQ packet
-    size_t dataSize = sizeof(uint16_t) + strlen(filename) + 1 + strlen(MODE_STRING) + 1;
+    // Calculate the size of the WRQ packet
+    size_t packetSize = sizeof(uint16_t) + strlen(filename) + 1 + strlen(MODE_STRING) + 1;
 
-    // Allocate memory for the data field
-    packet->data = (char *) malloc(dataSize);
-    if (packet->data == NULL) {
-        handle_error("sendWRQ", "Failed to allocate memory for WRQ packet", "malloc");
+    // Allocate memory for the WRQ packet
+    char *wrqPacket = (char *) malloc(packetSize);
+    if (wrqPacket == NULL) {
+        handle_error("sendRRQ", "Failed to allocate memory for RRQ packet", "malloc");
     }
 
-    // Create the WRQ
+    // Initialize the current index for building the packet
+    int currentIndex = 0;
 
-    // 1. Set 2 as opcode for WRQ
-    packet->opcode = htons(2);
+    // 1. Set the opcode for Write Request (WRQ) in the WRQ packet
+    wrqPacket[currentIndex++] = 0;
+    wrqPacket[currentIndex++] = WRQ_OPCODE_WRITE;
 
     // 2. Copy the filename to the packet
-    strcpy(packet->data, filename);
+    strcpy(wrqPacket + currentIndex, filename);
+    currentIndex += strlen(filename);
 
     // 3. Add a null byte after the filename
-    strcat(packet->data, "\0");
+    wrqPacket[currentIndex++] = '\0';
 
-    // 4. Copy the mode ("octet") to the packet
-    strcat(packet->data, MODE_STRING);
+    // 4. Copy the file transfer mode ("octet") to the RRQ packet
+    strcpy(wrqPacket + currentIndex, MODE_STRING);
+    currentIndex += strlen(MODE_STRING);
 
-    // 5. Add a null byte after the filename
-    strcat(packet->data, "\0");
+    // 5. Add a null byte after the mode
+    wrqPacket[currentIndex++] = '\0';
 
-    // Send WRQ request to server
-    ssize_t bytesSent = sendto(sockfd, packet->data, dataSize, SENDTO_FLAGS, serverAddr, sizeof(struct sockaddr));
+    // Send the RRQ packet to the server
+    ssize_t bytesSent = sendto(sockfd, wrqPacket, packetSize, SENDTO_FLAGS, serverAddr, sizeof(struct sockaddr));
     if (bytesSent == -1) {
-        free(packet->data);
-        handle_error("sendWRQ", "Failed to send WRQ packet to the server", "sendto");
+        free(wrqPacket);
+        handle_error("sendRRQ", "Failed to send RRQ packet to the server", "sendto");
     }
 
     // Display a success message for the RRQ packet transmission
-    displayDebugWRQSuccess();
+    displayDebugRRQSuccess();
 
-    return packet->data;
+    return wrqPacket;
 }
 
 // Function to send a file to the server
@@ -410,9 +421,9 @@ void displayDebugRRQSuccess() {
 void displayDebugReceivedDAT(const char *dataPacket, ssize_t bytesRead) {
     // Display received data
     printf("----- receiveFile -----\n");
-    printf("Received Data (length: %zd bytes): ", bytesRead - sizeof(uint16_t) * 2);
+    printf("Received Data (length: %zd bytes):\n", bytesRead - sizeof(uint16_t) * 2);
     fwrite(dataPacket + sizeof(uint16_t) * 2, 1, bytesRead - sizeof(uint16_t) * 2, stdout);
-    printf("\n\n");
+    printf("\n");
 }
 
 // Function to display a debug success message for ACK packet transmission
@@ -424,7 +435,7 @@ void debugDisplayACKSuccess() {
 
 // Function to display debug information about the successful WRQ packet transmission
 void displayDebugWRQSuccess() {
-    printf("----- sendWRQ -----");
+    printf("----- sendWRQ -----\n");
     printf("WRQ packet sent successfully.\n");
     printf("\n");
 }
@@ -444,9 +455,10 @@ void displayDebugSentDAT(const char *dataPacket, ssize_t bytesSent) {
 int main(int argc, char *argv[]) {
     char *host;
     char *file;
+    char *action;
 
     // Parse command line arguments
-    parseCmdArgs(argc, argv, &host, &file);
+    parseCmdArgs(argc, argv, &host, &file, &action);
 
     // Get server address information using getaddrinfo
     struct addrinfo *serverAddr = getAddressInfo(host, TFTP_SERVER_PORT);
@@ -454,20 +466,28 @@ int main(int argc, char *argv[]) {
     // Create and reserve a socket for connection to the server
     int sockfd = createSocket(serverAddr);
 
-    // Send a RRQ (Read Request) to the server
-    char *rrqPacket = sendRRQ(sockfd, serverAddr->ai_addr, file);
+    if (strcmp(action, "get") == 0) {
+        // Send a RRQ (Read Request) to the server
+        char *rrqPacket = sendRRQ(sockfd, serverAddr->ai_addr, file);
 
-    // Receive the file (single DATA packet) from the server
-    receiveFile(sockfd, serverAddr->ai_addr, file);
+        // Receive the file (single DATA packet) from the server
+        receiveFile(sockfd, serverAddr->ai_addr, file);
 
-    // Send a WRQ (Write Request) to the server
-    char *wrqPacket = sendWRQ(sockfd, serverAddr->ai_addr, file);
+        // Cleanup before exiting the program
+        cleanup(serverAddr, sockfd, rrqPacket, NULL);
+    } else if (strcmp(action, "put") == 0) {
+        // Send a WRQ (Write Request) to the server
+        char *wrqPacket = sendWRQ(sockfd, serverAddr->ai_addr, file);
 
-    // Send a file (multiple DATA Request) to the server
-    sendFile(sockfd, serverAddr->ai_addr, file);
+        // Send a file (multiple DATA Request) to the server
+        sendFile(sockfd, serverAddr->ai_addr, file);
 
-    // Cleanup before exiting the program
-    cleanup(serverAddr, sockfd, rrqPacket, wrqPacket);
+        // Cleanup before exiting the program
+        cleanup(serverAddr, sockfd, NULL, wrqPacket);
+    } else {
+        // Invalid action
+        handle_error("main", "Invalid action (use 'get' or 'put')", NULL);
+    }
 
     // Exit the program successfully
     return EXIT_SUCCESS;

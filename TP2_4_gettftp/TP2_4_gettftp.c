@@ -177,21 +177,26 @@ char* sendRRQ(int sockfd, const struct sockaddr *serverAddr, const char *filenam
         handle_error("sendRRQ", "Failed to allocate memory for RRQ packet", "malloc");
     }
 
+    // Initialize the current index for building the packet
+    int currentIndex = 0;
+
     // 1. Set the opcode for Read Request (RRQ) in the RRQ packet
-    rrqPacket[0] = 0;
-    rrqPacket[1] = RRQ_OPCODE_READ;
+    rrqPacket[currentIndex++] = 0;
+    rrqPacket[currentIndex++] = RRQ_OPCODE_READ;
 
     // 2. Copy the filename to the packet
-    strcpy(rrqPacket + sizeof(uint16_t), filename);
+    strcpy(rrqPacket + currentIndex, filename);
+    currentIndex += strlen(filename);
 
     // 3. Add a null byte after the filename
-    rrqPacket[sizeof(uint16_t) + strlen(filename)] = '\0';
+    rrqPacket[currentIndex++] = '\0';
 
     // 4. Copy the file transfer mode ("octet") to the RRQ packet
-    strcpy(rrqPacket + sizeof(uint16_t) + strlen(filename) + 1, MODE_STRING);
+    strcpy(rrqPacket + currentIndex, MODE_STRING);
+    currentIndex += strlen(MODE_STRING);
 
     // 5. Add a null byte after the mode
-    rrqPacket[sizeof(uint16_t) + strlen(filename) + 1 + strlen(MODE_STRING)] = '\0';
+    rrqPacket[currentIndex++] = '\0';
 
     // Send the RRQ packet to the server
     ssize_t bytesSent = sendto(sockfd, rrqPacket, packetSize, SENDTO_FLAGS, serverAddr, sizeof(struct sockaddr));
